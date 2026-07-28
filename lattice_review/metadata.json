@@ -1,0 +1,6 @@
+{
+  "name": "Lattice Review",
+  "description": "An interactive, AI-powered codebase compliance and pull request reviewing platform that aligns code repositories with custom defined architectural standards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

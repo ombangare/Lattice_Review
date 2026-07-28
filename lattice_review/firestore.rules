@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Entity validation functions
+    function isValidRepository(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 200
+        && data.url is string && data.url.size() <= 1000
+        && data.ownerId is string && data.ownerId.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && data.status is string && (data.status == 'ready' || data.status == 'pattern-learning' || data.status == 'error');
+    }
+
+    function isValidPatterns(data) {
+      return data.repoId is string && data.repoId.size() <= 128
+        && data.ownerId is string && data.ownerId.size() <= 128;
+    }
+
+    function isValidAnalysisReport(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.repoId is string && data.repoId.size() <= 128
+        && data.ownerId is string && data.ownerId.size() <= 128
+        && data.prUrl is string && data.prUrl.size() <= 1000
+        && data.status is string && (data.status == 'completed' || data.status == 'pending' || data.status == 'error')
+        && data.createdAt is string && data.createdAt.size() <= 50;
+    }
+
+    function isValidRepoAnalytics(data) {
+      return data.repoId is string && data.repoId.size() <= 128
+        && data.ownerId is string && data.ownerId.size() <= 128
+        && data.totalAnalyses is int && data.totalAnalyses >= 0
+        && data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    // User subcollections
+    match /users/{userId}/repos/{repoId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(repoId) && isValidRepository(incoming()) && incoming().ownerId == userId;
+      allow update: if isOwner(userId) && isValidRepository(incoming()) && incoming().ownerId == userId;
+      allow delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/patterns/{repoId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(repoId) && isValidPatterns(incoming()) && incoming().ownerId == userId;
+      allow update: if isOwner(userId) && isValidPatterns(incoming()) && incoming().ownerId == userId;
+      allow delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/analyses/{analysisId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(analysisId) && isValidAnalysisReport(incoming()) && incoming().ownerId == userId;
+      allow update: if isOwner(userId) && isValidAnalysisReport(incoming()) && incoming().ownerId == userId;
+      allow delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/analytics/{repoId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(repoId) && isValidRepoAnalytics(incoming()) && incoming().ownerId == userId;
+      allow update: if isOwner(userId) && isValidRepoAnalytics(incoming()) && incoming().ownerId == userId;
+      allow delete: if isOwner(userId);
+    }
+  }
+}
