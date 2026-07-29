@@ -89,16 +89,29 @@ async function generateContentWithRetry(
 
 app.use(express.json({ limit: '10mb' }));
 
-// Initialize Firebase Admin from the generated config file
+// Initialize Firebase Admin. Config is loaded from env vars first (FIREBASE_PROJECT_ID /
+// FIREBASE_FIRESTORE_DATABASE_ID) since Vercel's serverless bundler cannot reliably ship
+// a dynamically-read JSON file alongside the function — env vars always work regardless
+// of platform. The local firebase-applet-config.json file is kept only as a dev-time
+// fallback for when those env vars aren't set.
 const configPath = path.join(process.cwd(), "firebase-applet-config.json");
 let adminApp: any = null;
 let firestoreDb: any = null;
 let isFirestoreWorking = false;
 
-if (fs.existsSync(configPath)) {
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+const configFromEnv = process.env.FIREBASE_PROJECT_ID
+  ? {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID,
+    }
+  : null;
 
+const config = configFromEnv ?? (fs.existsSync(configPath)
+  ? JSON.parse(fs.readFileSync(configPath, "utf-8"))
+  : null);
+
+if (config) {
+  try {
     const serviceAccountB64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
     const isRunningOnCloud = !!process.env.K_SERVICE || process.env.NODE_ENV === "production";
     const hasCredentials = !!process.env.GOOGLE_APPLICATION_CREDENTIALS || !!serviceAccountB64;
@@ -137,7 +150,7 @@ if (fs.existsSync(configPath)) {
     isFirestoreWorking = false;
   }
 } else {
-  console.warn("No firebase-applet-config.json found! Server is operating without Firestore backend.");
+  console.warn("No Firebase config found (neither FIREBASE_PROJECT_ID env var nor firebase-applet-config.json)! Server is operating without Firestore backend.");
 }
 
 // Global In-Memory Defaults (for fallback / seeding templates)
@@ -1833,7 +1846,7 @@ function parseGitHubPrUrl(url: string) {
   return null;
 }
 
-// Serve Frontend (production static files only � Vite dev middleware lives in dev-server.ts)
+// Serve Frontend (production static files only — Vite dev middleware lives in dev-server.ts)
 async function startProductionServer() {
   const distPath = path.join(process.cwd(), "dist");
   app.use(express.static(distPath));
