@@ -4,7 +4,7 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
-import { initializeApp } from "firebase-admin/app";
+import { initializeApp, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
@@ -100,14 +100,28 @@ if (fs.existsSync(configPath)) {
   try {
     const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
+    const serviceAccountB64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
     const isRunningOnCloud = !!process.env.K_SERVICE || process.env.NODE_ENV === "production";
-    const hasCredentials = !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    const hasCredentials = !!process.env.GOOGLE_APPLICATION_CREDENTIALS || !!serviceAccountB64;
     const shouldConnectToFirestore = isRunningOnCloud || hasCredentials || process.env.FORCE_FIRESTORE === "true";
 
     if (shouldConnectToFirestore) {
-      adminApp = initializeApp({
-        projectId: config.projectId,
-      });
+      if (serviceAccountB64) {
+        // Explicit service account credentials, required on Vercel/Netlify — there is no
+        // metadata server there for Application Default Credentials to auto-detect, unlike
+        // real GCP infrastructure (Cloud Run, GCE, etc.).
+        const serviceAccountJson = Buffer.from(serviceAccountB64, "base64").toString("utf-8");
+        const serviceAccount = JSON.parse(serviceAccountJson);
+        adminApp = initializeApp({
+          credential: cert(serviceAccount),
+          projectId: config.projectId,
+        });
+      } else {
+        // Local dev or real GCP infra: relies on Application Default Credentials.
+        adminApp = initializeApp({
+          projectId: config.projectId,
+        });
+      }
       firestoreDb = getFirestore(adminApp, config.firestoreDatabaseId || undefined);
       isFirestoreWorking = true;
       console.log("Firebase Admin successfully initialized with Project ID:", config.projectId);
@@ -1841,4 +1855,13 @@ async function startServer() {
   });
 }
 
-startServer();
+// On serverless platforms (Vercel, Netlify), this app is imported by a platform-specific
+// function entry point instead of being run directly. It must NOT call app.listen() or
+// mount Vite middleware in that context.
+const isServerless = !!process.env.VERCEL || !!process.env.NETLIFY;
+if (!isServerless) {
+  startServer();
+}
+
+export default app;
+export { app };
